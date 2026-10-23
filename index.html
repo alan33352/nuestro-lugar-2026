@@ -625,7 +625,7 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
   // Casete de música
   (function(){
     var AC=window.AudioContext||window.webkitAudioContext,ctx,src,cur=null,t0=0,off=0,playing=false,tm;
-    var DEF='3AM Como tú',songs=[{title:DEF,buf:null}];
+    var DEF='Lista de Canciones',songs=[{title:DEF,buf:null}];
     var deck=document.getElementById('deck'),lbl=document.getElementById('clbl'),prog=document.getElementById('prog'),
         list=document.getElementById('list'),panel=document.getElementById('panel'),arrow=document.getElementById('arrow'),te=document.getElementById('toast');
     function toast(t){te.textContent=t;te.classList.add('on');clearTimeout(tm);tm=setTimeout(function(){te.classList.remove('on')},6000)}
