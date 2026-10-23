@@ -201,6 +201,7 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
 .reel{top:4px;width:26px;height:26px}
 .reel.l{left:6px}.reel.r{right:6px}
 .panel{bottom:calc(env(safe-area-inset-bottom,0px) + 150px)}
+.pol.busy{opacity:.5!important;pointer-events:none}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01s!important;transition-duration:.01s!important;transition-delay:0s!important}
   html{scroll-behavior:auto}
@@ -336,21 +337,53 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
     }
   },{threshold:.55}).observe(fin);
 
-  // Camino de recuerdos
+  // Nube compartida (Supabase)
+  var CFG={url:'https://xycvdvraavrrkodxfnws.supabase.co',key:'sb_publishable_CMVjPeR8oA9CDpmQs1uwOg_fBOZf5-c',bucket:'media'};
+  CFG.url=CFG.url.replace(/\/+$/,'');
+  var CLOUD=/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(CFG.url)&&CFG.key.length>20;
+  function H(x){var h={apikey:CFG.key},k;if(CFG.key.indexOf('eyJ')===0)h.Authorization='Bearer '+CFG.key;for(k in x)h[k]=x[k];return h}
+  function rnd(){return Date.now()+'-'+Math.random().toString(36).slice(2,8)}
+  var CL={
+    all:function(){return fetch(CFG.url+'/rest/v1/items?select=k,v&order=k.asc',{headers:H()}).then(function(r){if(!r.ok)throw 0;return r.json()})},
+    set:function(k,v){return fetch(CFG.url+'/rest/v1/items',{method:'POST',headers:H({'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'}),body:JSON.stringify({k:k,v:v})}).then(function(r){if(!r.ok)throw 0})},
+    del:function(k){return fetch(CFG.url+'/rest/v1/items?k=eq.'+encodeURIComponent(k),{method:'DELETE',headers:H()})},
+    up:function(path,blob,type){return fetch(CFG.url+'/storage/v1/object/'+CFG.bucket+'/'+path,{method:'POST',headers:H({'Content-Type':type||blob.type||'application/octet-stream'}),body:blob}).then(function(r){if(!r.ok)throw 0;return path})},
+    rm:function(path){return fetch(CFG.url+'/storage/v1/object/'+CFG.bucket+'/'+path,{method:'DELETE',headers:H()})},
+    url:function(path){return CFG.url+'/storage/v1/object/public/'+CFG.bucket+'/'+path}
+  };
+  var subs=[],lastSig='';
+  function sync(){
+    CL.all().then(function(rows){var sg=JSON.stringify(rows);if(sg===lastSig)return;lastSig=sg;subs.forEach(function(f){f(rows)})}).catch(function(){});
+  }
+  if(CLOUD){sync();setInterval(sync,20000);document.addEventListener('visibilitychange',function(){if(!document.hidden)sync()})}
+
+  
+// Camino de recuerdos
   (function(){
     var ROW=260,N=4,data={},db=null,first=true,NS='http://www.w3.org/2000/svg',trail=document.getElementById('trail');
     var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{threshold:.2});
     function show(el){if(first)io.observe(el);else el.classList.add('in')}
-    function put(k,v){try{db&&db.transaction('k','readwrite').objectStore('k').put(v,k)}catch(e){}}
-    function del(k){try{db&&db.transaction('k','readwrite').objectStore('k').delete(k)}catch(e){}}
+    function tt(m){if(window.toast2)window.toast2(m)}
+    function put(k,v){
+      if(CLOUD){CL.set(k,v).catch(function(){tt('No se pudo guardar. Revisa tu internet')});return}
+      try{db&&db.transaction('k','readwrite').objectStore('k').put(v,k)}catch(e){}
+    }
+    function del(k){
+      if(CLOUD){CL.del(k).catch(function(){});return}
+      try{db&&db.transaction('k','readwrite').objectStore('k').delete(k)}catch(e){}
+    }
     function shrink(file,cb){
       var r=new FileReader();
       r.onload=function(){var im=new Image();
         im.onload=function(){var s=Math.min(1,900/Math.max(im.width,im.height)),c=document.createElement('canvas');
           c.width=Math.round(im.width*s);c.height=Math.round(im.height*s);c.getContext('2d').drawImage(im,0,0,c.width,c.height);
-          cb(c.toDataURL('image/jpeg',.82))};
+          if(CLOUD)c.toBlob(function(b){cb(b)},'image/jpeg',.82);else cb(c.toDataURL('image/jpeg',.82))};
         im.onerror=function(){cb(null)};im.src=r.result};
       r.onerror=function(){cb(null)};r.readAsDataURL(file);
+    }
+    function calc(){
+      N=4;if(+data.n)N=Math.max(N,+data.n);
+      for(var k in data){if(k.charAt(0)==='p'&&!isNaN(+k.slice(1)))N=Math.max(N,+k.slice(1)+1)}
     }
     function build(){
       trail.innerHTML='';trail.style.height=(N*ROW)+'px';
@@ -367,50 +400,79 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
         pol.className='pol'+(s?' full':'');pol.style.left=(left?62:38)+'%';pol.style.top=ys[i]+'px';pol.style.setProperty('--r',(left?3:-3)+'deg');
         if(s){
           pol.innerHTML='<div class="ph"><img alt=""></div><input class="cap" maxlength="26" placeholder="Escribe un recuerdo…"><button class="x" aria-label="Quitar foto">✕</button>';
-          pol.querySelector('img').src=s.img;
+          pol.querySelector('img').src=s.path?CL.url(s.path):s.img;
           var cap=pol.querySelector('.cap');cap.value=s.cap||'';
           cap.onchange=function(){s.cap=cap.value;put('p'+i,s)};
-          pol.querySelector('.x').onclick=function(){delete data['p'+i];del('p'+i);build()};
+          pol.querySelector('.x').onclick=function(){if(CLOUD&&s.path)CL.rm(s.path).catch(function(){});delete data['p'+i];del('p'+i);build()};
         }else{
           pol.innerHTML='<div class="ph"><span>＋</span><small>Agrega una foto</small></div><input type="file" accept="image/*">';
-          pol.querySelector('input').onchange=function(){var f=this.files[0];if(!f)return;
-            shrink(f,function(u){if(!u)return;data['p'+i]={img:u,cap:''};put('p'+i,data['p'+i]);build()})};
+          pol.querySelector('input').onchange=function(){
+            var f=this.files[0];if(!f)return;
+            pol.classList.add('busy');if(CLOUD)tt('Subiendo la foto…');
+            shrink(f,function(u){
+              if(!u){pol.classList.remove('busy');return}
+              if(CLOUD){
+                var path='photos/'+rnd()+'.jpg';
+                CL.up(path,u,'image/jpeg').then(function(){data['p'+i]={path:path,cap:''};put('p'+i,data['p'+i]);build()}).catch(function(){pol.classList.remove('busy');tt('No se pudo subir la foto')});
+              }else{data['p'+i]={img:u,cap:''};put('p'+i,data['p'+i]);build()}
+            });
+          };
         }
         trail.appendChild(pol);show(pol);
       })(i);
     }
     document.getElementById('addstop').onclick=function(){N++;put('n',N);build()};
-    var done=false;
-    function go(){if(done)return;done=true;build();first=false}
-    try{
-      var r=indexedDB.open('camino',1);
-      r.onupgradeneeded=function(){r.result.createObjectStore('k')};
-      r.onerror=go;r.onblocked=go;
-      r.onsuccess=function(){db=r.result;
-        try{var c=db.transaction('k').objectStore('k').openCursor();
-          c.onsuccess=function(){var cu=c.result;
-            if(cu){data[cu.key]=cu.value;cu.continue()}
-            else{if(+data.n)N=Math.max(N,+data.n);
-              for(var k in data){if(k.charAt(0)==='p'&&!isNaN(+k.slice(1)))N=Math.max(N,+k.slice(1)+1)}
-              go()}};
-          c.onerror=go}catch(e){go()}};
-    }catch(e){go()}
-    setTimeout(go,1500);
+    if(CLOUD){
+      document.querySelector('.note').textContent='Lo que agregues lo verán los dos';
+      subs.push(function(rows){
+        if(document.activeElement&&document.activeElement.classList.contains('cap')){lastSig='';return}
+        data={};rows.forEach(function(r){data[r.k]=r.v});calc();build();first=false;
+      });
+      setTimeout(function(){if(first){build();first=false}},3500);
+    }else{
+      var done=false;
+      var go=function(){if(done)return;done=true;calc();build();first=false};
+      try{
+        var r=indexedDB.open('camino',1);
+        r.onupgradeneeded=function(){r.result.createObjectStore('k')};
+        r.onerror=go;r.onblocked=go;
+        r.onsuccess=function(){db=r.result;
+          try{var c=db.transaction('k').objectStore('k').openCursor();
+            c.onsuccess=function(){var cu=c.result;if(cu){data[cu.key]=cu.value;cu.continue()}else go()};
+            c.onerror=go}catch(e){go()}};
+      }catch(e){go()}
+      setTimeout(go,1500);
+    }
   })();
 
-  // Casete de música
+  
+// Casete de música
   (function(){
     var AC=window.AudioContext||window.webkitAudioContext,ctx,src,cur=null,t0=0,off=0,playing=false,tm;
-    var songs=[{title:'3AM Como tú',buf:null}];
+    var DEF='3AM Como tú',songs=[{title:DEF,buf:null}];
     var deck=document.getElementById('deck'),lbl=document.getElementById('clbl'),prog=document.getElementById('prog'),
         list=document.getElementById('list'),panel=document.getElementById('panel'),arrow=document.getElementById('arrow'),te=document.getElementById('toast');
     function toast(t){te.textContent=t;te.classList.add('on');clearTimeout(tm);tm=setTimeout(function(){te.classList.remove('on')},2800)}
-    function decode(f){return f.arrayBuffer().then(function(ab){ctx=ctx||new AC();return new Promise(function(r,j){ctx.decodeAudioData(ab,r,j)})})}
+    window.toast2=toast;
+    function decAB(ab){ctx=ctx||new AC();return new Promise(function(r,j){ctx.decodeAudioData(ab,r,j)})}
+    function decode(f){return f.arrayBuffer().then(decAB)}
+    function loadBuf(s){return fetch(CL.url(s.path)).then(function(r){if(!r.ok)throw 0;return r.arrayBuffer()}).then(decAB).then(function(b){s.buf=b})}
     function ui(){deck.classList.toggle('playing',playing)}
     function play(){ctx=ctx||new AC();ctx.resume();src=ctx.createBufferSource();src.buffer=cur.buf;src.loop=true;src.connect(ctx.destination);src.start(0,off);t0=ctx.currentTime-off;playing=true;ui()}
     function pause(){off=(ctx.currentTime-t0)%cur.buf.duration;try{src.stop()}catch(e){}playing=false;ui()}
+    function upSong(s,f){
+      var ext=((f.name.split('.').pop()||'mp3').replace(/[^a-z0-9]/gi,'')||'mp3').toLowerCase(),path='songs/'+rnd()+'.'+ext;
+      toast('Subiendo la canción…');
+      CL.up(path,f,f.type||'audio/mpeg').then(function(){s.path=path;return CL.set('song:'+rnd(),{title:s.title,path:path})})
+        .then(function(){toast('Canción guardada para los dos')}).catch(function(){toast('No pude subir la canción')});
+    }
     function insert(s){
-      if(!s.buf){toast('Primero adjunta el archivo con ＋');return}
+      ctx=ctx||new AC();ctx.resume();
+      if(!s.buf){
+        if(s.path){toast('Cargando la canción…');loadBuf(s).then(function(){insert(s)}).catch(function(){toast('No pude cargar la canción')})}
+        else toast('Primero adjunta el archivo con ＋');
+        return;
+      }
       if(playing)pause();
       cur=s;off=0;lbl.textContent='♪ '+s.title;
       deck.classList.remove('loaded');void deck.offsetWidth;deck.classList.add('loaded');
@@ -422,15 +484,24 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
         var li=document.createElement('li');li.className='song';
         li.innerHTML='<span class="grip">⠿</span><span class="nm"></span>';
         li.querySelector('.nm').textContent=s.title;
-        if(!s.buf){
+        if(!s.buf&&!s.path){
           var lb=document.createElement('label');lb.className='att';lb.textContent='＋ archivo';
           var inp=document.createElement('input');inp.type='file';inp.accept='audio/*';
-          inp.onchange=function(){if(inp.files[0])decode(inp.files[0]).then(function(b){s.buf=b;render();toast('Lista: arrástrala al casete')}).catch(function(){toast('No pude leer ese archivo')})};
+          inp.onchange=function(){var f=inp.files[0];if(!f)return;
+            decode(f).then(function(b){s.buf=b;render();toast('Lista: arrástrala al casete');if(CLOUD)upSong(s,f)}).catch(function(){toast('No pude leer ese archivo')})};
           lb.appendChild(inp);li.appendChild(lb);
         }
         li.addEventListener('pointerdown',function(e){drag(e,s)});
         list.appendChild(li);
       });
+    }
+    function mergeSongs(rows){
+      var cl=rows.filter(function(r){return r.k.indexOf('song:')===0}),old={},out=[],hasDef=false;
+      songs.forEach(function(s){if(s.path)old[s.path]=s});
+      cl.forEach(function(r){var s=old[r.v.path]||{buf:null};s.title=r.v.title;s.path=r.v.path;out.push(s);if(r.v.title===DEF)hasDef=true});
+      if(!hasDef)out.unshift(songs.filter(function(s){return !s.path&&s.title===DEF})[0]||{title:DEF,buf:null});
+      songs.forEach(function(s){if(!s.path&&s.buf&&s.title!==DEF)out.push(s)});
+      songs=out;render();
     }
     function over(x,y){var r=deck.getBoundingClientRect();return x>r.left-30&&x<r.right+30&&y>r.top-30&&y<r.bottom+30}
     function drag(e,s){
@@ -449,7 +520,7 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
     }
     document.getElementById('add').onchange=function(){
       Array.prototype.forEach.call(this.files,function(f){
-        decode(f).then(function(b){songs.push({title:f.name.replace(/\.[^.]+$/,''),buf:b});render()}).catch(function(){toast('No pude leer ese archivo')});
+        decode(f).then(function(b){var s={title:f.name.replace(/\.[^.]+$/,''),buf:b};songs.push(s);render();if(CLOUD)upSong(s,f)}).catch(function(){toast('No pude leer ese archivo')});
       });this.value='';
     };
     arrow.onclick=function(){var o=panel.classList.toggle('open');arrow.classList.toggle('open',o)};
@@ -458,10 +529,12 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
       playing?pause():play();
     });
     setInterval(function(){if(playing&&cur){var d=cur.buf.duration;prog.style.width=(((ctx.currentTime-t0)%d)/d*100)+'%'}},300);
+    if(CLOUD)subs.push(mergeSongs);
     render();
   })();
 
-  // Barra de progreso
+  
+// Barra de progreso
   var bar=document.getElementById('bar');
   addEventListener('scroll',function(){
     var h=document.documentElement;
