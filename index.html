@@ -343,17 +343,18 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
   var CLOUD=/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(CFG.url)&&CFG.key.length>20;
   function H(x){var h={apikey:CFG.key},k;if(CFG.key.indexOf('eyJ')===0)h.Authorization='Bearer '+CFG.key;for(k in x)h[k]=x[k];return h}
   function rnd(){return Date.now()+'-'+Math.random().toString(36).slice(2,8)}
+  function bad(r){return r.text().then(function(t){throw new Error('Error '+r.status+' '+t.slice(0,140))})}
   var CL={
-    all:function(){return fetch(CFG.url+'/rest/v1/items?select=k,v&order=k.asc',{headers:H()}).then(function(r){if(!r.ok)throw 0;return r.json()})},
-    set:function(k,v){return fetch(CFG.url+'/rest/v1/items',{method:'POST',headers:H({'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'}),body:JSON.stringify({k:k,v:v})}).then(function(r){if(!r.ok)throw 0})},
+    all:function(){return fetch(CFG.url+'/rest/v1/items?select=k,v&order=k.asc',{headers:H()}).then(function(r){if(!r.ok)return bad(r);return r.json()})},
+    set:function(k,v){return fetch(CFG.url+'/rest/v1/items',{method:'POST',headers:H({'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'}),body:JSON.stringify({k:k,v:v})}).then(function(r){if(!r.ok)return bad(r)})},
     del:function(k){return fetch(CFG.url+'/rest/v1/items?k=eq.'+encodeURIComponent(k),{method:'DELETE',headers:H()})},
-    up:function(path,blob,type){return fetch(CFG.url+'/storage/v1/object/'+CFG.bucket+'/'+path,{method:'POST',headers:H({'Content-Type':type||blob.type||'application/octet-stream'}),body:blob}).then(function(r){if(!r.ok)throw 0;return path})},
+    up:function(path,blob,type){return fetch(CFG.url+'/storage/v1/object/'+CFG.bucket+'/'+path,{method:'POST',headers:H({'Content-Type':type||blob.type||'application/octet-stream'}),body:blob}).then(function(r){if(!r.ok)return bad(r);return path})},
     rm:function(path){return fetch(CFG.url+'/storage/v1/object/'+CFG.bucket+'/'+path,{method:'DELETE',headers:H()})},
     url:function(path){return CFG.url+'/storage/v1/object/public/'+CFG.bucket+'/'+path}
   };
   var subs=[],lastSig='';
   function sync(){
-    CL.all().then(function(rows){var sg=JSON.stringify(rows);if(sg===lastSig)return;lastSig=sg;subs.forEach(function(f){f(rows)})}).catch(function(){});
+    CL.all().then(function(rows){var nt=document.querySelector('.note');if(nt)nt.textContent='Conectado · lo que agregues lo verán los dos';var sg=JSON.stringify(rows);if(sg===lastSig)return;lastSig=sg;subs.forEach(function(f){f(rows)})}).catch(function(e){var nt=document.querySelector('.note');if(nt)nt.textContent='Sin conexión con la nube. '+(e&&e.message||'')});
   }
   if(CLOUD){sync();setInterval(sync,20000);document.addEventListener('visibilitychange',function(){if(!document.hidden)sync()})}
 
@@ -365,7 +366,7 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
     function show(el){if(first)io.observe(el);else el.classList.add('in')}
     function tt(m){if(window.toast2)window.toast2(m)}
     function put(k,v){
-      if(CLOUD){CL.set(k,v).catch(function(){tt('No se pudo guardar. Revisa tu internet')});return}
+      if(CLOUD){CL.set(k,v).catch(function(e){tt('No se pudo guardar: '+(e&&e.message||''))});return}
       try{db&&db.transaction('k','readwrite').objectStore('k').put(v,k)}catch(e){}
     }
     function del(k){
@@ -413,7 +414,7 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
               if(!u){pol.classList.remove('busy');return}
               if(CLOUD){
                 var path='photos/'+rnd()+'.jpg';
-                CL.up(path,u,'image/jpeg').then(function(){data['p'+i]={path:path,cap:''};put('p'+i,data['p'+i]);build()}).catch(function(){pol.classList.remove('busy');tt('No se pudo subir la foto')});
+                CL.up(path,u,'image/jpeg').then(function(){data['p'+i]={path:path,cap:''};put('p'+i,data['p'+i]);build()}).catch(function(e){pol.classList.remove('busy');tt('No se pudo subir la foto: '+(e&&e.message||''))});
               }else{data['p'+i]={img:u,cap:''};put('p'+i,data['p'+i]);build()}
             });
           };
@@ -430,6 +431,7 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
       });
       setTimeout(function(){if(first){build();first=false}},3500);
     }else{
+      document.querySelector('.note').textContent='Modo local · sin conexión a la nube';
       var done=false;
       var go=function(){if(done)return;done=true;calc();build();first=false};
       try{
@@ -452,7 +454,7 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
     var DEF='3AM Como tú',songs=[{title:DEF,buf:null}];
     var deck=document.getElementById('deck'),lbl=document.getElementById('clbl'),prog=document.getElementById('prog'),
         list=document.getElementById('list'),panel=document.getElementById('panel'),arrow=document.getElementById('arrow'),te=document.getElementById('toast');
-    function toast(t){te.textContent=t;te.classList.add('on');clearTimeout(tm);tm=setTimeout(function(){te.classList.remove('on')},2800)}
+    function toast(t){te.textContent=t;te.classList.add('on');clearTimeout(tm);tm=setTimeout(function(){te.classList.remove('on')},6000)}
     window.toast2=toast;
     function decAB(ab){ctx=ctx||new AC();return new Promise(function(r,j){ctx.decodeAudioData(ab,r,j)})}
     function decode(f){return f.arrayBuffer().then(decAB)}
@@ -464,7 +466,7 @@ body:not(.locked) .dock{opacity:1;transform:none;pointer-events:auto}
       var ext=((f.name.split('.').pop()||'mp3').replace(/[^a-z0-9]/gi,'')||'mp3').toLowerCase(),path='songs/'+rnd()+'.'+ext;
       toast('Subiendo la canción…');
       CL.up(path,f,f.type||'audio/mpeg').then(function(){s.path=path;return CL.set('song:'+rnd(),{title:s.title,path:path})})
-        .then(function(){toast('Canción guardada para los dos')}).catch(function(){toast('No pude subir la canción')});
+        .then(function(){toast('Canción guardada para los dos')}).catch(function(e){toast('No pude subir la canción: '+(e&&e.message||''))});
     }
     function insert(s){
       ctx=ctx||new AC();ctx.resume();
